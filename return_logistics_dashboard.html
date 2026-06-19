@@ -446,8 +446,14 @@ function renderTable(data){
   const tbody=document.getElementById("tbody");
   let rows=data.map(rowModel);
 
+  // 주문별 최신 지시차수 — 재배정되면 이전 차수는 '대체됨'으로 간주
+  const maxSeq={};
+  rows.forEach(m=>{ maxSeq[m.ord]=Math.max(maxSeq[m.ord]||0, m.seqNum); });
+
   // 현재 단계 정확 일치 — 예: '매장 수락' 선택 시 매장수락 상태인 건만(기사수령·매장배정 제외)
-  if(filterStage!=="all"){ const fs=+filterStage; rows=rows.filter(m=>m.stage===fs); }
+  // + 재배정으로 다음 차수가 생긴 이전 차수(예: 2차로 넘어간 1차 매장배정)는 제외, 최신 차수만 노출
+  if(filterStage!=="all"){ const fs=+filterStage;
+    rows=rows.filter(m=> m.stage===fs && m.seqNum===maxSeq[m.ord]); }
   if(searchTerm){ const q=searchTerm.toLowerCase();
     rows=rows.filter(m=>(m.store+m.prod).toLowerCase().includes(q)); }
 
