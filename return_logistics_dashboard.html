@@ -113,6 +113,23 @@
   .badge .d{width:7px;height:7px;border-radius:50%}
   .empty{text-align:center;color:var(--t3);padding:40px 0;font-size:13px}
 
+  /* table head hint */
+  .tbl-head .thint{font-size:11.5px;color:var(--t3);margin-top:3px}
+
+  /* 지시차수 뱃지 */
+  .seqb{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;color:var(--t2)}
+  .seqb.re{color:var(--s3);font-weight:600}
+  .seqb .rk{font-family:var(--font);font-size:10px;font-weight:600;padding:1px 6px;border-radius:10px;
+    background:rgba(242,169,59,.14);color:var(--s3);border:1px solid rgba(242,169,59,.4)}
+
+  /* 재배정 묶음 행 (기본 정렬에서 1·2차 인접 노출) */
+  tr.grp{background:rgba(242,169,59,.045)}
+  tr.grp:hover{background:rgba(242,169,59,.09)}
+  tr.grp td:first-child{position:relative}
+  tr.grp td:first-child::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--s3)}
+  tr.grp.grp-first td{border-top:1px solid rgba(242,169,59,.28)}
+  tr.grp.grp-last td{border-bottom:1px solid rgba(242,169,59,.28)}
+
   .foot{margin-top:22px;font-size:11.5px;color:var(--t3);line-height:1.7}
   .foot code{font-family:var(--mono)}
 </style>
@@ -154,7 +171,10 @@
 
   <div class="tbl-card">
     <div class="tbl-head">
-      <h2>상세 내역</h2>
+      <div>
+        <h2>상세 내역</h2>
+        <div class="thint">배정이 오래된 주문부터 표시 · 1·2차 재배정 건은 함께 묶어 노출</div>
+      </div>
       <div class="filters">
         <button class="chip on" data-f="all">전체</button>
         <button class="chip" data-f="0">매장 배정</button>
@@ -388,29 +408,69 @@ function rowModel(r){
         dDeliv=parseDt(r.DELIVERY_ACCEPT_DT), dWare=parseDt(r.WAREHOUSE_DELIVERY_DT);
   const stage=currentStage(r);
   const lead=(dAssign&&dAccept)? dAccept-dAssign : null;
-  const seq=r.ASSIGN_SEQ.substr(2);
-  return { r, ord:r.ORD_DTL_SQ||"", seq, prod:(r.PROD_CD||"")+" / "+(r.SIZE_CD||""),
+  const seq=(r.ASSIGN_SEQ||"").substr(2);
+  const seqNum=parseInt(r.ASSIGN_SEQ,10)||1;
+  return { r, ord:r.ORD_DTL_SQ||"", seq, seqNum, prod:(r.PROD_CD||"")+" / "+(r.SIZE_CD||""),
     store:r.OFF_STORE_NM||"", sts:r.ORD_STS_NM||"", stage,
     dAssign,dAccept,dDeliv,dWare, lead };
+}
+
+/* 같은 주문(ORD_DTL_SQ)끼리 묶고, 묶음을 '가장 오래된 배정' 기준으로 정렬.
+   묶음 내부는 지시차수(1차→2차) 오름차순으로 인접 노출. */
+function groupByOrder(rows){
+  const groups=new Map();
+  rows.forEach((m,i)=>{
+    const key = m.ord || ("__"+i);
+    if(!groups.has(key)) groups.set(key,[]);
+    groups.get(key).push(m);
+  });
+  const arr=[...groups.values()];
+  arr.forEach(g=> g.sort((a,b)=> a.seqNum-b.seqNum));
+  // 묶음 대표값 = 묶음 내 가장 이른 배정시각(= 1차 배정). 배정 없으면 맨 뒤로.
+  const gval=g=>{
+    const ts=g.map(m=> m.dAssign? m.dAssign.getTime():Infinity);
+    return Math.min(...ts);
+  };
+  arr.sort((a,b)=> gval(a)-gval(b));
+  const out=[];
+  arr.forEach(g=>{
+    const multi=g.length>1;
+    g.forEach((m,idx)=> out.push(Object.assign({}, m, {
+      _grpMulti:multi, _grpFirst:idx===0, _grpLast:idx===g.length-1
+    })));
+  });
+  return out;
 }
 
 function renderTable(data){
   const tbody=document.getElementById("tbody");
   let rows=data.map(rowModel);
 
-  if(filterStage!=="all"){ const fs=+filterStage; rows=rows.filter(m=>m.stage>=fs); }
+  // 현재 단계 정확 일치 — 예: '매장 수락' 선택 시 매장수락 상태인 건만(기사수령·매장배정 제외)
+  if(filterStage!=="all"){ const fs=+filterStage; rows=rows.filter(m=>m.stage===fs); }
   if(searchTerm){ const q=searchTerm.toLowerCase();
     rows=rows.filter(m=>(m.store+m.prod).toLowerCase().includes(q)); }
 
+  // 재배정(같은 주문 2건 이상) 식별
+  const ordCount={};
+  rows.forEach(m=>{ ordCount[m.ord]=(ordCount[m.ord]||0)+1; });
+  const multiOrds=new Set(Object.keys(ordCount).filter(k=>ordCount[k]>1));
+
+  let grouped=false;
   if(sortKey){
-    const get={ ord:m=>m.ord, prod:m=>m.prod, store:m=>m.store, stage:m=>m.stage,
+    // 사용자가 컬럼 헤더를 클릭한 경우 — 해당 컬럼 기준 정렬
+    const get={ ord:m=>m.ord, prod:m=>m.prod, store:m=>m.store, stage:m=>m.stage, seq:m=>m.seqNum,
       assign:m=>m.dAssign?m.dAssign.getTime():0, accept:m=>m.dAccept?m.dAccept.getTime():0,
       deliv:m=>m.dDeliv?m.dDeliv.getTime():0, ware:m=>m.dWare?m.dWare.getTime():0,
       lead:m=>m.lead??-1 }[sortKey];
     rows.sort((a,b)=>{ const x=get(a),y=get(b); return (x>y?1:x<y?-1:0)*sortDir; });
+  }else{
+    // 기본: 배정 오래된 주문부터 + 1·2차 재배정 건 묶음
+    rows=groupByOrder(rows);
+    grouped=true;
   }
 
-  if(rows.length===0){ tbody.innerHTML=`<tr><td colspan="9" class="empty">조건에 맞는 내역이 없습니다</td></tr>`; return; }
+  if(rows.length===0){ tbody.innerHTML=`<tr><td colspan="10" class="empty">조건에 맞는 내역이 없습니다</td></tr>`; return; }
 
   const cell=(d)=> d? `<span class="strong">${fmtFull(d)}</span>` : `<span class="dim">—</span>`;
   tbody.innerHTML=rows.map(m=>{
@@ -418,10 +478,19 @@ function renderTable(data){
     const badge = st
       ? `<span class="badge" style="border-color:${st.color}55;color:${st.color};background:${st.color}14"><span class="d" style="background:${st.color}"></span>${st.name}</span>`
       : `<span class="badge" style="border-color:var(--line-2);color:var(--t3)">미배정</span>`;
-    return `<tr>
+    const isRe = m.seqNum>1;
+    const seqCell = isRe
+      ? `<span class="seqb re">${m.seq}차지시<span class="rk">재배정</span></span>`
+      : `<span class="seqb">${m.seq}차지시</span>`;
+    // 기본(묶음) 모드에서 재배정 주문에만 좌측 강조 바
+    let cls="";
+    if(grouped && m._grpMulti){
+      cls="grp"+(m._grpFirst?" grp-first":"")+(m._grpLast?" grp-last":"");
+    }
+    return `<tr class="${cls}">
       <td class="mono">${m.ord}</td>
       <td class="mono">${m.prod}</td>
-	  <td class="mono">${m.seq}차지시</td>
+	  <td>${seqCell}</td>
       <td class="strong">${m.store||'—'}</td>
       <td>${badge}</td>
       <td title="${fmtFull(m.dAssign)}">${cell(m.dAssign)}</td>
