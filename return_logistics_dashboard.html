@@ -522,8 +522,8 @@ async function load(){
     RAW = await fetchData();
     usingSample=false; hideBanner();
   }catch(e){
-    RAW = SAMPLE; usingSample=true;
-    showBanner("warn", `<span>⚠ API 호출에 실패해 <b>샘플 데이터</b>로 표시 중입니다 — <code>${String(e.message||e)}</code>. 사내망/동일 도메인에서 열거나 CONFIG의 CORS·인증 설정을 확인하세요.</span>`);
+    RAW = []; usingSample=false;
+    showBanner("err", `<span>⚠ API 호출에 실패했습니다 — <code>${String(e.message||e)}</code>. 사내망/동일 도메인에서 열거나 CONFIG의 CORS·인증 설정을 확인하세요.</span>`);
   }finally{
     renderAll();
     document.getElementById("updated").textContent =
