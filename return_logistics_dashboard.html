@@ -279,7 +279,7 @@ function currentStage(row){
 		const diffDate = new Date(currDate.getFullYear()+"-"+pad(currDate.getMonth()+1)+"-"+pad(currDate.getDate())).getTime()
 		- new Date(row[STAGES[s].key].substr(0,10)).getTime();
 		const diffDays = diffDate / (1000 * 60 * 60 * 24);
-		if(diffDays==2) (s=4);
+		if(diffDays>=2) (s=4);
 	}
   return s; // -1 = 단계 없음
 }
