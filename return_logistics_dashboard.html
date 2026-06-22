@@ -315,6 +315,7 @@
               <th class="num" data-k="accepted">수락 <span class="ar">↕</span></th>
               <th class="num" data-k="unaccepted">미수락 <span class="ar">↕</span></th>
               <th data-k="acceptRate">수락률 <span class="ar">↕</span></th>
+              <th class="num" data-k="waiting">수락 대기 <span class="ar">↕</span></th>
               <th class="num" data-k="pass">미이행 <span class="ar">↕</span></th>
               <th class="num" data-k="reassign">재배정 <span class="ar">↕</span></th>
               <th class="num" data-k="avgT1">평균 수락소요 <span class="ar">↕</span></th>
@@ -838,6 +839,7 @@ function byStore(data){
   });
   return [...m.values()].map(o=>({
     store:o.store, total:o.total, accepted:o.accepted, unaccepted:o.unaccepted,
+    waiting: Math.max(0, o.unaccepted - o.pass),  // 수락 대기 = 미수락 − 미이행
     pass:o.pass, reassign:o.reassign,
     acceptRate: o.total? o.accepted/o.total : 0,
     avgT1: mean(o._t1), avgLead: mean(o._lead)
@@ -985,12 +987,12 @@ function renderStoreTable(){
   let rows=STORE_AGG;
   if(storeSearchTerm){ const q=storeSearchTerm.toLowerCase(); rows=rows.filter(s=>s.store.toLowerCase().includes(q)); }
   const get={ store:s=>s.store, total:s=>s.total, accepted:s=>s.accepted, unaccepted:s=>s.unaccepted,
-    acceptRate:s=>s.acceptRate, pass:s=>s.pass, reassign:s=>s.reassign,
+    acceptRate:s=>s.acceptRate, waiting:s=>s.waiting, pass:s=>s.pass, reassign:s=>s.reassign,
     avgT1:s=>s.avgT1??-1, avgLead:s=>s.avgLead??-1 }[storeSortKey] || (s=>s.total);
   rows=[...rows].sort((a,b)=>{ const x=get(a),y=get(b); return (x>y?1:x<y?-1:0)*storeSortDir; });
   lastStoreRows=rows;
 
-  if(rows.length===0){ tbody.innerHTML=`<tr><td colspan="9" class="empty">데이터가 없습니다</td></tr>`; return; }
+  if(rows.length===0){ tbody.innerHTML=`<tr><td colspan="10" class="empty">데이터가 없습니다</td></tr>`; return; }
   const rateColor=r=> r>=0.8?"#5BC85B": r>=0.5?"#F2A93B":"#F2615C";
   tbody.innerHTML=rows.map(s=>`<tr>
     <td class="strong">${s.store}</td>
@@ -998,6 +1000,7 @@ function renderStoreTable(){
     <td class="num mono">${s.accepted}</td>
     <td class="num mono ${s.unaccepted?'':'dim'}">${s.unaccepted}</td>
     <td><span class="rate"><span class="bar"><i style="width:${Math.round(s.acceptRate*100)}%;background:${rateColor(s.acceptRate)}"></i></span><span class="pc">${fmtPct(s.acceptRate)}</span></span></td>
+    <td class="num mono" style="color:${s.waiting?'var(--s3)':'var(--t3)'}">${s.waiting}</td>
     <td class="num mono" style="color:${s.pass?'var(--danger)':'var(--t3)'}">${s.pass}</td>
     <td class="num mono" style="color:${s.reassign?'var(--s3)':'var(--t3)'}">${s.reassign}</td>
     <td class="num">${s.avgT1!=null?fmtDur(s.avgT1):'<span class="dim">—</span>'}</td>
@@ -1120,7 +1123,7 @@ document.getElementById("storeCsv").addEventListener("click",()=>{
   const H=[
     {label:"매장명",get:s=>s.store},{label:"주문건수",get:s=>s.total},{label:"수락",get:s=>s.accepted},
     {label:"미수락",get:s=>s.unaccepted},{label:"수락률",get:s=>fmtPct(s.acceptRate)},
-    {label:"미이행",get:s=>s.pass},{label:"재배정",get:s=>s.reassign},
+    {label:"수락대기",get:s=>s.waiting},{label:"미이행",get:s=>s.pass},{label:"재배정",get:s=>s.reassign},
     {label:"평균수락소요",get:s=>s.avgT1!=null?fmtDur(s.avgT1):""},
     {label:"평균리드타임",get:s=>s.avgLead!=null?fmtDur(s.avgLead):""}
   ];
