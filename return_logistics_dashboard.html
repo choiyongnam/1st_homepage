@@ -98,6 +98,20 @@
   .tl-track .seg{position:absolute;top:50%;height:3px;transform:translateY(-50%);border-radius:2px}
   .tl-dot{position:absolute;top:50%;width:11px;height:11px;border-radius:50%;transform:translate(-50%,-50%);z-index:2;border:2px solid var(--panel)}
   .tl-note{font-size:11px;color:var(--t3);margin-top:10px}
+  .tl-scroll{max-height:300px;overflow-y:auto}
+  .tl-scroll::-webkit-scrollbar{width:8px}
+  .tl-scroll::-webkit-scrollbar-thumb{background:var(--elev);border-radius:4px}
+
+  /* flow panel head + segmented toggle */
+  .tl-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+  .tl-head h2{font-size:14px;font-weight:600;margin:0 0 2px}
+  .tl-head .hint{margin:0}
+  .seg{display:inline-flex;background:var(--bg);border:1px solid var(--line-2);border-radius:8px;padding:2px;flex-shrink:0}
+  .seg button{background:none;border:none;color:var(--t2);font-family:var(--font);font-size:12px;font-weight:500;padding:5px 13px;border-radius:6px;cursor:pointer;transition:.12s}
+  .seg button:hover{color:var(--t1)}
+  .seg button.on{background:var(--accent);color:#fff}
+  .seg.sub{margin-bottom:12px}
+  .seg.sub button.on{background:var(--panel-2);color:var(--t1)}
 
   /* table */
   .tbl-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-bottom:16px}
@@ -113,11 +127,11 @@
   .tbl-scroll{overflow-x:auto}
   table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:920px}
   table.store{min-width:880px}
-  thead th{text-align:left;padding:11px 14px;color:var(--t2);font-weight:500;font-size:11.5px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--panel-2);white-space:nowrap;cursor:pointer;user-select:none}
+  thead th{text-align:left;padding:10px 11px;color:var(--t2);font-weight:500;font-size:11.5px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--panel-2);white-space:nowrap;cursor:pointer;user-select:none}
   thead th:hover{color:var(--t1)}
   thead th .ar{opacity:.5;font-size:9px;margin-left:3px}
   thead th.num{text-align:right}
-  tbody td{padding:11px 14px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+  tbody td{padding:10px 11px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle}
   tbody td.num{text-align:right;font-variant-numeric:tabular-nums}
   tbody tr:last-child td{border-bottom:none}
   tbody tr:hover{background:var(--panel-2)}
@@ -191,11 +205,28 @@
         <div class="chart-box"><canvas id="funnel" role="img" aria-label="단계별 진행 건수 퍼널 차트"></canvas></div>
       </div>
       <div class="card">
-        <h2>시간대별 타임라인</h2>
-        <p class="hint">건별 배정·수락·수령·도착 시점 (시간축 자동 조정)</p>
-        <div class="legend" id="tlLegend"></div>
-        <div class="tl-axis" id="tlAxis"></div>
-        <div id="timeline"></div>
+        <div class="tl-head">
+          <div>
+            <h2>시간대별 흐름</h2>
+            <p class="hint" id="tlHint">시간 버킷별 단계 처리량 · 물동량과 무관하게 집계로 조망</p>
+          </div>
+          <div class="seg" id="tlMode">
+            <button class="on" data-mode="agg">집계</button>
+            <button data-mode="ind">개별</button>
+          </div>
+        </div>
+        <div id="tlAgg">
+          <div class="seg sub" id="tlView">
+            <button class="on" data-view="flow">처리량</button>
+            <button data-view="wip">재고(WIP)</button>
+          </div>
+          <div class="chart-box tall"><canvas id="tlChart" role="img" aria-label="시간대별 단계 흐름"></canvas></div>
+        </div>
+        <div id="tlInd" hidden>
+          <div class="legend" id="tlLegend"></div>
+          <div class="tl-axis" id="tlAxis"></div>
+          <div id="timeline" class="tl-scroll"></div>
+        </div>
       </div>
     </div>
 
@@ -358,6 +389,7 @@ function parseDt(s){
 const pad = n => String(n).padStart(2,"0");
 function dayKey(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
 function fmtFull(d){ return d ? dayKey(d)+" "+pad(d.getHours())+":"+pad(d.getMinutes()) : "—"; }
+function fmtShort(d){ return d ? pad(d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes()) : "—"; }
 function fmtDur(ms){
   if(ms==null) return "—";
   const m = Math.round(ms/60000);
@@ -368,6 +400,25 @@ function fmtDur(ms){
   return rh ? dys+"일 "+rh+"시간" : dys+"일";
 }
 function fmtPct(x){ return x==null? "—" : Math.round(x*100)+"%"; }
+
+/* 적응형 시간 버킷/눈금 */
+const MIN_=60000, DAY_=24*60*MIN_;
+const BUCKET_SIZES=[30*MIN_,60*MIN_,2*60*MIN_,3*60*MIN_,6*60*MIN_,12*60*MIN_,DAY_,2*DAY_,7*DAY_];
+function pickBucket(span, target){
+  target=target||20;
+  for(const b of BUCKET_SIZES){ if(Math.ceil(span/b)<=target) return b; }
+  return BUCKET_SIZES[BUCKET_SIZES.length-1];
+}
+function alignStart(min, b){
+  if(b>=DAY_){ const d=new Date(min); d.setHours(0,0,0,0); return d.getTime(); }
+  return Math.floor(min/b)*b;
+}
+function fmtBucket(t, bucketMs, withDate){
+  const d=new Date(t);
+  if(bucketMs>=DAY_) return pad(d.getMonth()+1)+"/"+pad(d.getDate());
+  const hm=pad(d.getHours())+":"+pad(d.getMinutes());
+  return withDate ? pad(d.getMonth()+1)+"/"+pad(d.getDate())+" "+hm : hm;
+}
 
 function currentStage(row){
   let s = -1;
@@ -411,6 +462,25 @@ function downloadCsv(name, text){
    Data fetch
    ============================================================ */
 let RAW = [];
+
+/* 데모/검증용 샘플 (?demo=1 일 때만 사용) — 다일 범위 + 미이행 + 미배정/재배정 케이스 포함 */
+const DEMO = [
+  {ORD_DTL_SQ:"000126478549",PROD_CD:"ISTS6E521N3",SIZE_CD:"00M",ASSIGN_SEQ:"001",ASSIGN_NO:"0001",ORD_STS_NM:"반품 완료",OFF_STORE_NM:"현대무역이자벨마랑",OFF_STORE_ASSIGN_DT:"2026-06-15 09:45:00",OFF_STORE_ACCEPT_DT:"2026-06-15 10:52:00",DELIVERY_ACCEPT_DT:"2026-06-16 05:25:00",WAREHOUSE_DELIVERY_DT:"2026-06-16 13:42:00"},
+  {ORD_DTL_SQ:"000126481601",PROD_CD:"VCBL6E211I1",SIZE_CD:"0XS",ASSIGN_SEQ:"001",ASSIGN_NO:"0001",ORD_STS_NM:"매장 미이행",OFF_STORE_NM:"현대목동빈스",OFF_STORE_ASSIGN_DT:"2026-06-15 10:45:00",OFF_STORE_ACCEPT_DT:"0000-00-00 00:00:00",DELIVERY_ACCEPT_DT:"0000-00-00 00:00:00",WAREHOUSE_DELIVERY_DT:"0000-00-00 00:00:00"},
+  {ORD_DTL_SQ:"000126481601",PROD_CD:"VCBL6E211I1",SIZE_CD:"0XS",ASSIGN_SEQ:"002",ASSIGN_NO:"0002",ORD_STS_NM:"반품 완료",OFF_STORE_NM:"현대무역빈스",OFF_STORE_ASSIGN_DT:"2026-06-17 08:00:00",OFF_STORE_ACCEPT_DT:"2026-06-17 11:54:00",DELIVERY_ACCEPT_DT:"2026-06-18 05:07:00",WAREHOUSE_DELIVERY_DT:"2026-06-18 11:16:00"},
+  {ORD_DTL_SQ:"000126487083",PROD_CD:"CWSW6E568CR",SIZE_CD:"0XS",ASSIGN_SEQ:"001",ASSIGN_NO:"0001",ORD_STS_NM:"반품 완료",OFF_STORE_NM:"갤러리아타임월드라움",OFF_STORE_ASSIGN_DT:"2026-06-15 13:15:00",OFF_STORE_ACCEPT_DT:"2026-06-15 14:11:00",DELIVERY_ACCEPT_DT:"2026-06-16 07:38:00",WAREHOUSE_DELIVERY_DT:"2026-06-17 15:19:00"},
+  {ORD_DTL_SQ:"000126487090",PROD_CD:"IUC06E201I2",SIZE_CD:"055",ASSIGN_SEQ:"001",ASSIGN_NO:"0001",ORD_STS_NM:"기사 수령",OFF_STORE_NM:"현대목동이자벨마랑에뚜왈",OFF_STORE_ASSIGN_DT:"2026-06-16 11:20:00",OFF_STORE_ACCEPT_DT:"2026-06-16 12:40:00",DELIVERY_ACCEPT_DT:"2026-06-17 06:10:00",WAREHOUSE_DELIVERY_DT:"0000-00-00 00:00:00"},
+  {ORD_DTL_SQ:"000126487101",PROD_CD:"ISJA6E441BK",SIZE_CD:"090",ASSIGN_SEQ:"001",ASSIGN_NO:"0001",ORD_STS_NM:"매장 수락",OFF_STORE_NM:"더현대서울이자벨마랑",OFF_STORE_ASSIGN_DT:"2026-06-17 09:30:00",OFF_STORE_ACCEPT_DT:"2026-06-17 13:05:00",DELIVERY_ACCEPT_DT:"0000-00-00 00:00:00",WAREHOUSE_DELIVERY_DT:"0000-00-00 00:00:00"},
+  {ORD_DTL_SQ:"000126487115",PROD_CD:"ISDR6E491B1",SIZE_CD:"044",ASSIGN_SEQ:"001",ASSIGN_NO:"0001",ORD_STS_NM:"반품 완료",OFF_STORE_NM:"더현대서울이자벨마랑",OFF_STORE_ASSIGN_DT:"2026-06-17 10:15:00",OFF_STORE_ACCEPT_DT:"2026-06-17 12:48:00",DELIVERY_ACCEPT_DT:"2026-06-18 06:30:00",WAREHOUSE_DELIVERY_DT:"2026-06-18 10:05:00"},
+  {ORD_DTL_SQ:"000126487120",PROD_CD:"VCTS5E909N2",SIZE_CD:"010",ASSIGN_SEQ:"001",ASSIGN_NO:"0001",ORD_STS_NM:"반품 완료",OFF_STORE_NM:"현대본점빈스",OFF_STORE_ASSIGN_DT:"2026-06-16 14:00:00",OFF_STORE_ACCEPT_DT:"2026-06-16 17:20:00",DELIVERY_ACCEPT_DT:"2026-06-17 07:55:00",WAREHOUSE_DELIVERY_DT:"2026-06-17 12:10:00"},
+  {ORD_DTL_SQ:"000126487137",PROD_CD:"VCTS6E903BK",SIZE_CD:"095",ASSIGN_SEQ:"001",ASSIGN_NO:"0001",ORD_STS_NM:"기사 수령",OFF_STORE_NM:"현대목동빈스",OFF_STORE_ASSIGN_DT:"2026-06-16 15:30:00",OFF_STORE_ACCEPT_DT:"2026-06-16 16:48:00",DELIVERY_ACCEPT_DT:"2026-06-17 08:20:00",WAREHOUSE_DELIVERY_DT:"2026-06-17 14:55:00"},
+  {ORD_DTL_SQ:"000126487144",PROD_CD:"ISTS6E713BK",SIZE_CD:"00M",ASSIGN_SEQ:"001",ASSIGN_NO:"0001",ORD_STS_NM:"매장 배정",OFF_STORE_NM:"신세계센텀이자벨마랑",OFF_STORE_ASSIGN_DT:"2026-06-21 09:10:00",OFF_STORE_ACCEPT_DT:"0000-00-00 00:00:00",DELIVERY_ACCEPT_DT:"0000-00-00 00:00:00",WAREHOUSE_DELIVERY_DT:"0000-00-00 00:00:00"},
+  {ORD_DTL_SQ:"000126487151",PROD_CD:"CWTS6E467OW",SIZE_CD:"088",ASSIGN_SEQ:"001",ASSIGN_NO:"0001",ORD_STS_NM:"반품 완료",OFF_STORE_NM:"갤러리아타임월드라움",OFF_STORE_ASSIGN_DT:"2026-06-16 10:05:00",OFF_STORE_ACCEPT_DT:"2026-06-16 11:30:00",DELIVERY_ACCEPT_DT:"2026-06-17 05:50:00",WAREHOUSE_DELIVERY_DT:"2026-06-17 11:40:00"},
+  {ORD_DTL_SQ:"000126487168",PROD_CD:"ISHE6E401B2",SIZE_CD:"059",ASSIGN_SEQ:"001",ASSIGN_NO:"0001",ORD_STS_NM:"매장 미이행",OFF_STORE_NM:"롯데잠실에비뉴엘이자벨마랑",OFF_STORE_ASSIGN_DT:"2026-06-15 13:30:00",OFF_STORE_ACCEPT_DT:"0000-00-00 00:00:00",DELIVERY_ACCEPT_DT:"0000-00-00 00:00:00",WAREHOUSE_DELIVERY_DT:"0000-00-00 00:00:00"},
+  {ORD_DTL_SQ:"000126499001",PROD_CD:"VCBL6E777N1",SIZE_CD:"0XS",ASSIGN_SEQ:"001",ASSIGN_NO:"0001",ORD_STS_NM:"미배정(지시대기)",OFF_STORE_NM:"현대판교이자벨마랑",OFF_STORE_ASSIGN_DT:"0000-00-00 00:00:00",OFF_STORE_ACCEPT_DT:"0000-00-00 00:00:00",DELIVERY_ACCEPT_DT:"0000-00-00 00:00:00",WAREHOUSE_DELIVERY_DT:"0000-00-00 00:00:00"},
+  {ORD_DTL_SQ:"000126499001",PROD_CD:"VCBL6E777N1",SIZE_CD:"0XS",ASSIGN_SEQ:"002",ASSIGN_NO:"0002",ORD_STS_NM:"매장 수락",OFF_STORE_NM:"현대판교빈스",OFF_STORE_ASSIGN_DT:"2026-06-18 10:40:00",OFF_STORE_ACCEPT_DT:"2026-06-18 13:25:00",DELIVERY_ACCEPT_DT:"0000-00-00 00:00:00",WAREHOUSE_DELIVERY_DT:"0000-00-00 00:00:00"}
+];
+const IS_DEMO = /[?&]demo=1\b/.test(location.search);
 
 function extractArray(json){
   if(Array.isArray(json)) return json;
@@ -483,8 +553,85 @@ function renderFunnel(data){
   });
 }
 
-const TL_MAX=80;
-function renderTimeline(data){
+/* ----- 시간대별 흐름 (하이브리드: 집계 / 개별) ----- */
+let tlMode="agg", tlView="flow", tlChart=null;
+const TL_MAX=300;
+
+/* 집계 시간 윈도우/버킷 산출 */
+function flowBuckets(data, target){
+  let times=[];
+  data.forEach(r=>MAIN_STAGES.forEach(st=>{ const d=parseDt(r[st.key]); if(d) times.push(d.getTime()); }));
+  if(times.length===0) return null;
+  const min=Math.min(...times), max=Math.max(...times)+1;
+  const b=pickBucket(max-min, target);
+  const start=alignStart(min,b);
+  const n=Math.max(1, Math.ceil((max-start)/b));
+  const buckets=Array.from({length:n},(_,i)=>({start:start+i*b, end:start+(i+1)*b}));
+  const withDate=new Date(start).toDateString()!==new Date(start+n*b-1).toDateString();
+  return { b, start, n, buckets, labels:buckets.map(bk=>fmtBucket(bk.start,b,withDate)) };
+}
+
+function throughputSeries(data, n, start, b){
+  const series=MAIN_STAGES.map(()=>new Array(n).fill(0));
+  data.forEach(r=>MAIN_STAGES.forEach((st,si)=>{
+    const d=parseDt(r[st.key]); if(!d) return;
+    const idx=Math.floor((d.getTime()-start)/b);
+    if(idx>=0&&idx<n) series[si][idx]++;
+  }));
+  return series;
+}
+
+function wipSeries(data, buckets){
+  const n=buckets.length;
+  const series=MAIN_STAGES.map(()=>new Array(n).fill(0));
+  const items=data.map(r=>{
+    const a=parseDt(r.OFF_STORE_ASSIGN_DT), b=parseDt(r.OFF_STORE_ACCEPT_DT),
+          c=parseDt(r.DELIVERY_ACCEPT_DT), d=parseDt(r.WAREHOUSE_DELIVERY_DT);
+    return { a:a?a.getTime():null, b:b?b.getTime():null, c:c?c.getTime():null, d:d?d.getTime():null };
+  });
+  for(let bi=0;bi<n;bi++){
+    const tt=buckets[bi].end;
+    for(const o of items){
+      if(o.d!=null && o.d<=tt) series[3][bi]++;
+      else if(o.c!=null && o.c<=tt) series[2][bi]++;
+      else if(o.b!=null && o.b<=tt) series[1][bi]++;
+      else if(o.a!=null && o.a<=tt) series[0][bi]++;
+    }
+  }
+  return series;
+}
+
+function renderAggChart(data){
+  const cv=document.getElementById("tlChart");
+  const bk=flowBuckets(data, 20);
+  if(tlChart){ tlChart.destroy(); tlChart=null; }
+  if(!bk){ const ctx=cv.getContext("2d"); ctx.clearRect(0,0,cv.width,cv.height); return; }
+
+  let type, datasets;
+  if(tlView==="flow"){
+    const s=throughputSeries(data, bk.n, bk.start, bk.b);
+    type="bar";
+    datasets=MAIN_STAGES.map((st,si)=>({ label:st.name, data:s[si], backgroundColor:st.color, borderRadius:3, stack:"s" }));
+  }else{
+    const s=wipSeries(data, bk.buckets);
+    type="line";
+    datasets=MAIN_STAGES.map((st,si)=>({ label:st.name, data:s[si], borderColor:st.color, backgroundColor:st.color+"40",
+      fill:true, stack:"s", tension:.25, pointRadius:0, borderWidth:1.5 }));
+  }
+  tlChart=new Chart(cv,{
+    type, data:{ labels:bk.labels, datasets },
+    options:{ responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:"index", intersect:false },
+      plugins:{ legend:{ labels:{ color:"#E6EAF0", boxWidth:12, font:{size:11} } },
+        tooltip:{ callbacks:{ label:c=>c.dataset.label+": "+c.parsed.y+"건" } } },
+      scales:{
+        x:{ stacked:true, ticks:{ color:"#8B95A5", maxRotation:0, autoSkip:true, maxTicksLimit:12 }, grid:{ display:false } },
+        y:{ stacked:true, beginAtZero:true, ticks:{ stepSize:1, precision:0, color:"#8B95A5" }, grid:{ color:"rgba(255,255,255,.06)" } }
+      } }
+  });
+}
+
+function renderIndTimeline(data){
   const legend = document.getElementById("tlLegend");
   legend.innerHTML = STAGES.map(s=>`<span><i style="background:${s.color}"></i>${s.name}</span>`).join("");
   const rows = data.length>TL_MAX ? data.slice(0,TL_MAX) : data;
@@ -496,14 +643,17 @@ function renderTimeline(data){
   if(times.length===0){ axis.innerHTML=""; tl.innerHTML='<div class="empty">표시할 시점 데이터가 없습니다</div>'; return; }
   let min=Math.min(...times), max=Math.max(...times);
   if(min===max) max=min+3600000;
-  const HOUR=3600000;
-  let start=Math.floor((min-HOUR*0.5)/HOUR)*HOUR;
-  let end=Math.ceil((max+HOUR*0.5)/HOUR)*HOUR;
-  const span=end-start;
+  const tick=pickBucket(max-min, 7);
+  let start, end;
+  if(tick>=DAY_){ const d0=new Date(min); d0.setHours(0,0,0,0); start=d0.getTime();
+    const d1=new Date(max); d1.setHours(0,0,0,0); end=d1.getTime()+DAY_; }
+  else { start=Math.floor(min/tick)*tick; end=Math.ceil(max/tick)*tick; }
+  const span=(end-start)||tick;
   const pct = t => ((t-start)/span*100);
+  const withDate=new Date(start).toDateString()!==new Date(end-1).toDateString();
 
   let ax="";
-  for(let t=start;t<=end;t+=HOUR){ const d=new Date(t); ax+=`<span style="left:${pct(t)}%">${pad(d.getHours())}:00</span>`; }
+  for(let t=start;t<=end;t+=tick){ ax+=`<span style="left:${pct(t)}%">${fmtBucket(t,tick,withDate)}</span>`; }
   axis.innerHTML=ax;
 
   tl.innerHTML = rows.map(r=>{
@@ -518,7 +668,42 @@ function renderTimeline(data){
       <div class="tl-lab"><div class="s" title="${r.OFF_STORE_NM||''}">${r.OFF_STORE_NM||'—'}</div><div class="p">${r.PROD_CD||''}</div></div>
       <div class="tl-track"><div class="base"></div>${segs}${dots}</div>
     </div>`;
-  }).join("") + (data.length>TL_MAX ? `<div class="tl-note">최근 ${TL_MAX}건만 표시 (총 ${data.length}건)</div>` : "");
+  }).join("") + (data.length>TL_MAX ? `<div class="tl-note">최대 ${TL_MAX}건 표시 (총 ${data.length}건) · 필터로 좁혀보세요</div>` : "");
+}
+
+/* 표 필터/검색과 동일 조건으로 거른 원본 행 */
+function getFilteredRaw(){
+  let ms=RAW.map(rowModel);
+  const maxSeq={}; ms.forEach(m=>{ maxSeq[m.ord]=Math.max(maxSeq[m.ord]||0, m.seqNum); });
+  if(filterStage!=="all"){ const fs=+filterStage;
+    ms=ms.filter(m=> m.stage===fs && (fs!==0 || m.seqNum===maxSeq[m.ord])); }
+  if(searchTerm){ const q=searchTerm.toLowerCase();
+    ms=ms.filter(m=>(m.store+m.prod).toLowerCase().includes(q)); }
+  return ms.map(m=>m.r);
+}
+
+function renderFlow(){
+  const agg=document.getElementById("tlAgg"), ind=document.getElementById("tlInd"),
+        hint=document.getElementById("tlHint");
+  if(tlMode==="agg"){
+    agg.hidden=false; ind.hidden=true;
+    hint.textContent = tlView==="flow"
+      ? "시간 버킷별로 각 단계에서 처리된 건수 (스택) · 물동량과 무관하게 집계"
+      : "각 시점에 각 단계에 머무르는 재고(WIP) 누적 · 쌓이는 단계가 병목";
+    renderAggChart(RAW);
+  }else{
+    agg.hidden=true; ind.hidden=false;
+    const fr=getFilteredRaw();
+    hint.textContent = "건별 배정·수락·수령·도착 시점"
+      + ((filterStage!=="all"||searchTerm) ? " · 표 필터 적용("+fr.length+"건)" : " · 표 필터/검색과 연동");
+    renderIndTimeline(fr);
+  }
+}
+
+function setTlMode(m){
+  tlMode=m;
+  document.querySelectorAll("#tlMode button").forEach(b=>b.classList.toggle("on", b.dataset.mode===m));
+  renderFlow();
 }
 
 /* table state */
@@ -568,9 +753,10 @@ function renderTable(data){
   const maxSeq={};
   rows.forEach(m=>{ maxSeq[m.ord]=Math.max(maxSeq[m.ord]||0, m.seqNum); });
 
-  // 현재 단계 정확 일치 + 재배정으로 대체된 이전 차수 제외(최신 차수만 노출)
+  // 현재 단계 정확 일치 + (매장배정 단계에 한해) 재배정으로 대체된 이전 차수 제외
+  // ※ supersession 제외는 단계 0에만 적용. 미배정(-1)·수락·수령·도착·미이행엔 미적용
   if(filterStage!=="all"){ const fs=+filterStage;
-    rows=rows.filter(m=> m.stage===fs && m.seqNum===maxSeq[m.ord]); }
+    rows=rows.filter(m=> m.stage===fs && (fs!==0 || m.seqNum===maxSeq[m.ord])); }
   if(searchTerm){ const q=searchTerm.toLowerCase();
     rows=rows.filter(m=>(m.store+m.prod).toLowerCase().includes(q)); }
 
@@ -594,7 +780,7 @@ function renderTable(data){
 
   if(rows.length===0){ tbody.innerHTML=`<tr><td colspan="10" class="empty">조건에 맞는 내역이 없습니다</td></tr>`; return; }
 
-  const cell=(d)=> d? `<span class="strong">${fmtFull(d)}</span>` : `<span class="dim">—</span>`;
+  const cell=(d)=> d? `<span class="strong">${fmtShort(d)}</span>` : `<span class="dim">—</span>`;
   tbody.innerHTML=rows.map(m=>{
     const st = m.stage>=0 ? STAGES[m.stage] : null;
     const badge = st
@@ -834,7 +1020,7 @@ function renderAnalytics(data){
    ============================================================ */
 function currentTab(){ return document.querySelector(".tab.on").dataset.tab; }
 function renderAll(){
-  renderKpis(RAW); renderFunnel(RAW); renderTimeline(RAW); renderTable(RAW);
+  renderKpis(RAW); renderFunnel(RAW); renderFlow(); renderTable(RAW);
   if(currentTab()==="an") renderAnalytics(RAW);
 }
 
@@ -843,6 +1029,13 @@ function renderAll(){
    ============================================================ */
 const rIcon=document.getElementById("rIcon"), refreshBtn=document.getElementById("refresh");
 async function load(){
+  if(IS_DEMO){   // ?demo=1 — 사내망 없이 시각 검증/시연
+    RAW = DEMO;
+    showBanner("warn", `<span>🧪 <b>데모 모드</b> — 샘플 데이터로 표시 중입니다(<code>?demo=1</code>). 실데이터는 주소에서 <code>?demo=1</code>을 빼고 사내망에서 여세요.</span>`);
+    renderAll();
+    document.getElementById("updated").textContent = "데모";
+    return;
+  }
   refreshBtn.disabled=true; rIcon.innerHTML='<span class="spin"></span>';
   try{
     RAW = await fetchData();
@@ -878,8 +1071,21 @@ document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>{
 document.querySelectorAll("#pane-op .chip").forEach(c=>c.addEventListener("click",()=>{
   document.querySelectorAll("#pane-op .chip").forEach(x=>x.classList.remove("on"));
   c.classList.add("on"); filterStage=c.dataset.f; renderTable(RAW);
+  if(tlMode==="ind") renderFlow();
 }));
-document.getElementById("search").addEventListener("input",e=>{ searchTerm=e.target.value.trim(); renderTable(RAW); });
+document.getElementById("search").addEventListener("input",e=>{
+  searchTerm=e.target.value.trim(); renderTable(RAW);
+  if(searchTerm && tlMode!=="ind") setTlMode("ind");   // 검색 시 개별 모드로 자동 전환
+  else if(tlMode==="ind") renderFlow();
+});
+
+/* 흐름 패널 토글 (집계/개별, 처리량/재고) */
+document.querySelectorAll("#tlMode button").forEach(b=>b.addEventListener("click",()=>setTlMode(b.dataset.mode)));
+document.querySelectorAll("#tlView button").forEach(b=>b.addEventListener("click",()=>{
+  tlView=b.dataset.view;
+  document.querySelectorAll("#tlView button").forEach(x=>x.classList.toggle("on", x===b));
+  renderFlow();
+}));
 document.querySelectorAll("#tbl thead th").forEach(th=>th.addEventListener("click",()=>{
   const k=th.dataset.k; if(!k) return;
   if(sortKey===k) sortDir*=-1; else { sortKey=k; sortDir=1; }
